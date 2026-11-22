@@ -188,7 +188,11 @@ pre{white-space:pre-wrap;background:var(--card);border-radius:10px;padding:12px;
     <div id="stList"></div>
     <span class="lb">バックアップ</span>
     <p class="hint">記録はこのiPhoneの中だけに保存されます。機種変更や万一に備えて、ときどき書き出してください。</p>
-    <div class="row"><button id="exp" type="button">書き出す</button><button id="impBtn" type="button">読み込む</button></div>
+    <div class="row"><button id="exp" type="button">全部を書き出す</button><button id="impBtn" type="button">読み込む</button></div>
+    <span class="lb">同僚に渡す（記録・写真は含みません）</span>
+    <p class="hint">団地名、ボタンの内容、登録したゴミ置き場だけをまとめて渡せます。受け取った人は、上の「読み込む」でこのファイルを選びます。同じゴミ置き場は上書きされ、持っているほかの登録は消えません。</p>
+    <div class="row"><button id="expShare" type="button">共有ファイルを書き出す</button><button id="expText" type="button">文字でコピー</button></div>
+    <p class="hint">「文字でコピー」は、ゴミ置き場の名前と座標だけです。LINEなどに貼り付けて送れます。受け取った人は、上の「文字でまとめて登録」に貼り付けます。</p>
     <p class="hint" id="storeInfo"></p>
   </div>
 </section>
@@ -645,10 +649,35 @@ $('exp').addEventListener('click',async()=>{
   if(navigator.canShare&&navigator.canShare({files:[f]})){try{await navigator.share({files:[f]});return}catch(e){if(e.name==='AbortError')return}}
   const a=document.createElement('a');a.href=URL.createObjectURL(f);a.download=name;document.body.appendChild(a);a.click();a.remove();
 });
+async function shareFile(data,name){
+  const f=new File([data],name,{type:'application/json'});
+  if(navigator.canShare&&navigator.canShare({files:[f]})){try{await navigator.share({files:[f]});return}catch(e){if(e.name==='AbortError')return}}
+  const a=document.createElement('a');a.href=URL.createObjectURL(f);a.download=name;document.body.appendChild(a);a.click();a.remove();
+}
+$('expShare').addEventListener('click',()=>{
+  const o={app:'dumplog-share',v:1,cfg:{name:cfg.name,bld:cfg.bld,spot:cfg.spot,kind:cfg.kind,stations:cfg.stations}};
+  const d=new Date();shareFile(JSON.stringify(o),`投棄記録_共有_${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}.json`);
+});
+$('expText').addEventListener('click',async()=>{
+  if(!cfg.stations.length){toast('登録されたゴミ置き場がありません');return}
+  const t=cfg.stations.map(s=>`${s.name} ${s.lat.toFixed(6)},${s.lng.toFixed(6)}`).join('\n');
+  try{await navigator.clipboard.writeText(t);toast(`${cfg.stations.length}か所をコピーしました`)}catch(e){$('stBulk').value=t;toast('コピーできませんでした。「文字でまとめて登録」の欄に出したので、選択してコピーしてください')}
+});
 $('impBtn').addEventListener('click',()=>{$('imp').value='';$('imp').click()});
 $('imp').addEventListener('change',async e=>{
   const f=e.target.files[0];if(!f)return;
-  try{const j=JSON.parse(await f.text());if(j.app!=='dumplog'||!Array.isArray(j.items))throw 0;
+  try{const j=JSON.parse(await f.text());
+    if(j.app==='dumplog-share'&&j.cfg&&Array.isArray(j.cfg.stations)){
+      let add=0,upd=0;
+      for(const s of j.cfg.stations){
+        if(!s||!s.id||typeof s.lat!=='number'||typeof s.lng!=='number'||!s.name)continue;
+        const i=cfg.stations.findIndex(x=>x.id===s.id);
+        if(i>=0){cfg.stations[i]={id:s.id,name:s.name,lat:s.lat,lng:s.lng};upd++}else{cfg.stations.push({id:s.id,name:s.name,lat:s.lat,lng:s.lng});add++}
+      }
+      for(const k of ['name','bld','spot','kind'])if(typeof j.cfg[k]==='string'&&j.cfg[k])cfg[k]=j.cfg[k];
+      saveCfg();hide('ssheet');render();toast(`ゴミ置き場を読み込みました（追加${add}・更新${upd}）。設定も反映しました`);return;
+    }
+    if(j.app!=='dumplog'||!Array.isArray(j.items))throw 0;
     let n=0;for(const o of j.items){if(o&&o.id&&o.img){await putRec(o);n++}}
     if(j.cfg){cfg={...DEF,...j.cfg};if(!Array.isArray(cfg.stations))cfg.stations=[];saveCfg()}
     await reload();hide('ssheet');toast(`${n}件を読み込みました`);
