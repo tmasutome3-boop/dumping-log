@@ -46,6 +46,13 @@ main{max-width:820px;margin:auto;padding:0 16px}
 .idel{position:absolute;right:8px;bottom:8px;min-height:36px;font-size:13px;padding:0 12px;color:var(--bad);background:var(--bg)}
 .idel.ask{background:var(--bad);color:#fff;border-color:var(--bad);font-weight:700}
 .item .c{padding-right:70px}
+.chips button small{opacity:.75;margin-left:4px}
+.stn{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;margin-top:10px}
+.stn .stb{display:flex;gap:6px;align-items:center}
+.stn .stb button,.stn .stb a{min-height:40px;font-size:13px;padding:0 10px;display:flex;align-items:center;color:var(--ac)}
+.stn .stb button.danger{color:var(--bad)}
+.stn .stb button.ask{background:var(--bad);color:#fff;border-color:var(--bad);font-weight:700}
+details summary{cursor:pointer;min-height:44px;display:flex;align-items:center;font-size:13px;font-weight:700;margin-top:12px}
 .empty{text-align:center;padding:50px 10px;color:var(--sub)}
 .bar{position:fixed;left:0;right:0;bottom:0;padding:10px 16px calc(10px + env(safe-area-inset-bottom));background:var(--bg);border-top:1px solid var(--line);display:flex;gap:10px;justify-content:center;z-index:5}
 .bar .shoot{flex:1;max-width:460px;min-height:58px;font-size:19px}
@@ -98,10 +105,17 @@ pre{white-space:pre-wrap;background:var(--card);border-radius:10px;padding:12px;
     <img class="photo" id="sphoto" alt="撮影した写真">
     <label for="fdt">日時</label>
     <input id="fdt" type="datetime-local">
-    <span class="lb">号棟</span>
-    <div class="chips" id="cBld"></div>
-    <span class="lb">場所</span>
-    <div class="chips" id="cSpot"></div>
+    <span class="lb">ゴミ置き場（近い順）</span>
+    <div class="chips" id="cStn"></div>
+    <p class="hint" id="stHint" style="margin:6px 0 0"></p>
+    <div class="row" id="fstReg" style="margin-top:8px"><input id="fstNew" placeholder="新しいゴミ置き場の名前"><button id="fstAdd" type="button" style="flex:none">ここを登録</button></div>
+    <details id="bldSpot">
+      <summary>号棟・場所を選ぶ（ゴミ置き場以外のとき）</summary>
+      <span class="lb">号棟</span>
+      <div class="chips" id="cBld"></div>
+      <span class="lb">場所</span>
+      <div class="chips" id="cSpot"></div>
+    </details>
     <label for="fplace">場所の補足</label>
     <input id="fplace" placeholder="例：北側入口の横、2階踊り場">
     <span class="lb">住所（位置情報から自動入力）</span>
@@ -150,6 +164,10 @@ pre{white-space:pre-wrap;background:var(--card);border-radius:10px;padding:12px;
     <textarea id="sSpot"></textarea>
     <label for="sKind">種類のボタン</label>
     <textarea id="sKind"></textarea>
+    <span class="lb" id="stLb">ゴミ置き場の登録</span>
+    <p class="hint">ゴミ置き場の前に立って名前を入れ、「現在地で登録」を押します。撮影したとき、近いゴミ置き場が候補に出ます。登録は押した時点で保存されます。</p>
+    <div class="row" style="margin-top:8px"><input id="stNew" placeholder="例：3号棟 北ゴミ置き場"><button class="pri" id="stAdd" type="button" style="flex:none">現在地で登録</button></div>
+    <div id="stList"></div>
     <span class="lb">バックアップ</span>
     <p class="hint">記録はこのiPhoneの中だけに保存されます。機種変更や万一に備えて、ときどき書き出してください。</p>
     <div class="row"><button id="exp" type="button">書き出す</button><button id="impBtn" type="button">読み込む</button></div>
@@ -174,7 +192,10 @@ function toast(t){const e=$('toast');e.textContent=t;e.classList.add('on');clear
 /* ---------- 設定 ---------- */
 const DEF={name:'',bld:'1号棟、2号棟、3号棟、4号棟、5号棟、6号棟、7号棟、8号棟、集会所、敷地内',spot:'ゴミ置き場、粗大ごみ置き場、駐輪場、駐車場、階段、通路、エレベーター前、植え込み、公園・広場、敷地外周',kind:'粗大ごみ、家電、袋ごみ、自転車、タイヤ、家具、布団・マット、その他'};
 let cfg={...DEF};
-try{cfg={...DEF,...JSON.parse(localStorage.getItem('cfg')||'{}')}}catch(e){}
+let lsCfg=null;
+try{lsCfg=localStorage.getItem('cfg');cfg={...DEF,...JSON.parse(lsCfg||'{}')}}catch(e){}
+if(!Array.isArray(cfg.stations))cfg.stations=[];
+function saveCfg(){try{localStorage.setItem('cfg',JSON.stringify(cfg))}catch(e){}if(idb&&!memMode){IDB.put({id:'__cfg',cfg}).catch(()=>{})}}
 const split=s=>s.split(/[、,，\n]/).map(x=>x.trim()).filter(Boolean);
 
 /* ---------- 保存（端末内 IndexedDB） ---------- */
@@ -187,7 +208,7 @@ const IDB={
   del(id){return IDB.req('readwrite',s=>s.delete(id))}
 };
 let memMode=false;
-async function reload(){if(!memMode){try{items=await IDB.all()}catch(e){memMode=true}}render();$('errline').textContent=memMode?'この画面では一時保存のみです（閉じると消えます）':''}
+async function reload(){if(!memMode){try{items=(await IDB.all()).filter(x=>!String(x.id).startsWith('__'))}catch(e){memMode=true}}render();$('errline').textContent=memMode?'この画面では一時保存のみです（閉じると消えます）':''}
 async function putRec(o){if(!memMode){try{await IDB.put(o);return}catch(e){memMode=true}}items=items.filter(x=>x.id!==o.id).concat(o)}
 async function delRec(id){if(!memMode){try{await IDB.del(id);return}catch(e){memMode=true}}items=items.filter(x=>x.id!==id)}
 
@@ -260,7 +281,7 @@ async function lookup(lat,lng){
 let filt='all';
 function render(){
   const q=$('q').value.trim().toLowerCase();
-  const list=items.filter(o=>(filt==='all'||String(o.st)===filt)&&(!q||[o.bld,o.spot,o.place,o.addr,o.kind,o.comment].join(' ').toLowerCase().includes(q))).sort((a,b)=>b.t-a.t);
+  const list=items.filter(o=>(filt==='all'||String(o.st)===filt)&&(!q||[o.station,o.bld,o.spot,o.place,o.addr,o.kind,o.comment].join(' ').toLowerCase().includes(q))).sort((a,b)=>b.t-a.t);
   const n0=items.filter(o=>o.st===0).length;
   $('sumline').textContent=(cfg.name?cfg.name+'　':'')+`全${items.length}件・未報告${n0}件`;
   if(!items.length){$('list').innerHTML=`<div class="empty"><p>まだ記録がありません。<br>下の「撮影して記録」から始めましょう。</p><p class="hint">最初に「設定」で団地名と号棟を登録しておくと便利です。</p></div>`;return}
@@ -268,7 +289,7 @@ function render(){
   const g={};list.forEach(o=>{const k=dayKey(o.t);(g[k]??=[]).push(o)});
   $('list').innerHTML=Object.entries(g).map(([d,a])=>`<div class="day"><span>${d}　${a.length}件</span><button type="button" data-rep="${esc(a.map(o=>o.id).join(','))}">報告文</button></div>${a.map(o=>`<div class="item" role="button" tabindex="0" data-id="${esc(o.id)}"><img src="${esc(o.thumb)}" alt=""><div><div class="t">${hm(o.t)}<span class="st s${o.st}">${STATES[o.st]}</span>${o.kind?`<span>${esc(o.kind)}</span>`:''}</div><div class="p">${esc(placeText(o)||'場所未入力')}</div><div class="a">${esc(o.addr||'')}</div><div class="c">${esc(o.comment||'')}</div></div><button class="idel" type="button" data-del="${esc(o.id)}">削除</button></div>`).join('')}`).join('');
 }
-const placeText=o=>[o.bld,o.spot,o.place].filter(Boolean).join(' ');
+const placeText=o=>[o.station,o.bld,o.spot,o.place].filter(Boolean).join(' ');
 $('list').addEventListener('click',e=>{
   const r=e.target.closest('[data-rep]');if(r){openReport(r.dataset.rep.split(','));return}
   const d=e.target.closest('[data-del]');
@@ -284,7 +305,33 @@ $('tabs').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)
 /* ---------- 入力シート ---------- */
 let cur=null;
 function chips(el,list,val,multi){el.innerHTML=list.map(x=>`<button type="button" class="${(multi?String(val||'').split('・').includes(x):val===x)?'on':''}">${esc(x)}</button>`).join('')}
+const rad=x=>x*Math.PI/180;
+function dist(a,b){const R=6371000,dl=rad(b.lat-a.lat),dg=rad(b.lng-a.lng),x=Math.sin(dl/2)**2+Math.cos(rad(a.lat))*Math.cos(rad(b.lat))*Math.sin(dg/2)**2;return 2*R*Math.asin(Math.sqrt(x))}
+function cands(o){
+  const S=cfg.stations;if(!S.length)return[];
+  if(o.lat==null)return S.map(s=>({...s,d:null}));
+  const L=S.map(s=>({...s,d:Math.round(dist(o,s))})).sort((a,b)=>a.d-b.d),top=L.slice(0,4);
+  const sel=L.find(x=>(o.stId&&x.id===o.stId)||(!o.stId&&o.station&&x.name===o.station));
+  if(sel&&!top.includes(sel))top.push(sel);return top;
+}
+function autoStation(o){
+  if(o.station||o.lat==null||!cfg.stations.length)return;
+  const c=cands(o)[0];if(c&&c.d<=40){o.station=c.name;o.stId=c.id}
+}
+function drawStn(){
+  const o=cur,L=cands(o);
+  $('cStn').innerHTML=L.map(x=>`<button type="button" data-sid="${esc(x.id)}" class="${((o.stId&&o.stId===x.id)||(!o.stId&&o.station===x.name))?'on':''}">${esc(x.name)}${x.d!=null?`<small>${x.d}m</small>`:''}</button>`).join('');
+  let h='';
+  if(!cfg.stations.length)h='まだゴミ置き場が登録されていません。下の入力欄に名前を入れて「ここを登録」を押すか、「設定」から登録できます。';
+  else if(o._busy&&o.lat==null)h='位置情報を取得中…';
+  else if(o.lat==null)h='位置情報がないため、一覧から選んでください。';
+  else if(!o.station)h='40m以内に登録済みのゴミ置き場がありません。近いものを選ぶか、下で新しく登録してください。';
+  else if(o.acc)h=`位置の誤差は約${o.acc}mです。違うときは別のボタンを押してください。`;
+  $('stHint').textContent=h;
+  $('fstReg').style.display=o.lat!=null?'flex':'none';
+}
 function drawChips(){
+  drawStn();
   chips($('cBld'),split(cfg.bld),cur.bld);chips($('cSpot'),split(cfg.spot),cur.spot);
   chips($('cKind'),split(cfg.kind),cur.kind,true);chips($('cSt'),STATES,STATES[cur.st]);
 }
@@ -293,6 +340,7 @@ function pickChip(el,key,multi){el.addEventListener('click',e=>{const b=e.target
   else if(multi){const a=String(cur[key]||'').split('・').filter(Boolean);const i=a.indexOf(v);i<0?a.push(v):a.splice(i,1);cur[key]=a.join('・')}
   else cur[key]=cur[key]===v?'':v;
   drawChips()})}
+$('cStn').addEventListener('click',e=>{const b=e.target.closest('button');if(!b||!cur)return;const s=cfg.stations.find(x=>x.id===b.dataset.sid);if(!s)return;if(cur.stId===s.id||(!cur.stId&&cur.station===s.name)){cur.station='';cur.stId=''}else{cur.station=s.name;cur.stId=s.id}drawChips()});
 pickChip($('cBld'),'bld');pickChip($('cSpot'),'spot');pickChip($('cKind'),'kind',true);pickChip($('cSt'),'st');
 function drawAddr(){
   const o=cur,e=$('faddr');
@@ -313,8 +361,15 @@ async function fillAddr(o){
   o._busy=false;o.addr=r.addr||o.addr||'';o.near=r.name||'';if(!r.addr)o._err='住所を取得できませんでした（電波を確認して「住所を再取得」）';
   drawAddr();
 }
+$('fstAdd').addEventListener('click',()=>{
+  if(!cur||cur.lat==null)return;const n=$('fstNew').value.trim();if(!n){toast('ゴミ置き場の名前を入れてください');return}
+  const s={id:'s'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),name:n,lat:cur.lat,lng:cur.lng};
+  cfg.stations.push(s);saveCfg();cur.station=n;cur.stId=s.id;$('fstNew').value='';drawChips();toast('登録しました：'+n);
+});
 function openSheet(o,isNew){
   cur={...o,_new:isNew};
+  if(isNew)autoStation(cur);
+  $('fstNew').value='';$('bldSpot').open=(!cfg.stations.length)||!!(cur.bld||cur.spot);
   $('stitle').textContent=isNew?'新しい記録':'記録の編集';
   $('sphoto').src=o.img;
   $('fdt').value=toLocal(o.t);$('fplace').value=o.place||'';$('fcom').value=o.comment||'';
@@ -352,10 +407,10 @@ async function onFile(file,fromCam){
       img:shrink(img,1800,.85),thumb:shrink(img,240,.7)};
     openSheet(o,true);
     if(o.lat==null&&fromCam&&geoP){
-      cur._busy=true;drawAddr();const g=await geoP;if(!cur||cur.id!==o.id)return;
+      cur._busy=true;drawAddr();drawChips();const g=await geoP;if(!cur||cur.id!==o.id)return;
       cur._busy=false;
-      if(g.err){cur._err=g.err;drawAddr();return}
-      cur.lat=g.lat;cur.lng=g.lng;cur.acc=g.acc;
+      if(g.err){cur._err=g.err;drawAddr();drawChips();return}
+      cur.lat=g.lat;cur.lng=g.lng;cur.acc=g.acc;autoStation(cur);drawChips();
     }
     if(cur&&cur.lat!=null)await fillAddr(cur);
     else if(cur){cur._err=fromCam?'位置情報を取得できませんでした':'この写真には位置情報がありません';drawAddr()}
@@ -405,15 +460,50 @@ $('stamp').addEventListener('click',async()=>{
 $('pclose').addEventListener('click',()=>hide('psheet'));
 
 /* ---------- 設定・バックアップ ---------- */
+function bestPos(ms){return new Promise(ok=>{
+  if(!navigator.geolocation)return ok({err:'この端末では位置情報が使えません'});
+  let best=null,done=false,id,t;
+  const fin=()=>{if(done)return;done=true;try{navigator.geolocation.clearWatch(id)}catch(e){}clearTimeout(t);ok(best||{err:'位置情報を取得できませんでした'})};
+  t=setTimeout(fin,ms);
+  id=navigator.geolocation.watchPosition(p=>{const c={lat:p.coords.latitude,lng:p.coords.longitude,acc:Math.round(p.coords.accuracy)};if(!best||c.acc<best.acc)best=c;if(c.acc<=8)fin()},
+    e=>{if(!best){done=true;clearTimeout(t);try{navigator.geolocation.clearWatch(id)}catch(x){}ok({err:e.code===1?'位置情報が許可されていません（設定＞プライバシー＞位置情報サービス）':'位置情報を取得できませんでした'})}},
+    {enableHighAccuracy:true,timeout:15000,maximumAge:0});
+})}
+function drawStList(){
+  $('stLb').textContent=`ゴミ置き場の登録（${cfg.stations.length}か所）`;
+  $('stList').innerHTML=cfg.stations.map((s,i)=>`<div class="stn"><input value="${esc(s.name)}" data-i="${i}" aria-label="名前"><div class="stb"><a href="https://maps.apple.com/?ll=${s.lat},${s.lng}&q=${encodeURIComponent(s.name)}" target="_blank" rel="noopener">地図</a><button type="button" data-act="upd" data-i="${i}">位置更新</button><button type="button" class="danger" data-act="del" data-i="${i}">削除</button></div></div>`).join('');
+}
+$('stList').addEventListener('change',e=>{const i=e.target.dataset.i;if(e.target.tagName==='INPUT'&&cfg.stations[i]){const n=e.target.value.trim();if(n){cfg.stations[i].name=n;saveCfg()}else e.target.value=cfg.stations[i].name}});
+$('stList').addEventListener('click',async e=>{
+  const b=e.target.closest('button[data-act]');if(!b)return;const i=+b.dataset.i,s=cfg.stations[i];if(!s)return;
+  if(b.dataset.act==='del'){
+    if(!b.classList.contains('ask')){b.classList.add('ask');b.textContent='本当に削除';clearTimeout(b._t);b._t=setTimeout(()=>{b.classList.remove('ask');b.textContent='削除'},3000);return}
+    cfg.stations.splice(i,1);saveCfg();drawStList();toast('削除しました');return;
+  }
+  b.disabled=true;b.textContent='取得中…';const g=await bestPos(8000);
+  if(g.err){toast(g.err)}else{s.lat=g.lat;s.lng=g.lng;saveCfg();toast(`「${s.name}」の位置を更新しました（誤差 約${g.acc}m）`)}
+  drawStList();
+});
+$('stAdd').addEventListener('click',async()=>{
+  const n=$('stNew').value.trim();if(!n){toast('ゴミ置き場の名前を入れてください');return}
+  const b=$('stAdd');b.disabled=true;b.textContent='取得中…';
+  const g=await bestPos(8000);b.disabled=false;b.textContent='現在地で登録';
+  if(g.err){toast(g.err);return}
+  const near=cfg.stations.map(s=>({s,d:Math.round(dist(g,s))})).sort((a,b)=>a.d-b.d)[0];
+  cfg.stations.push({id:'s'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),name:n,lat:g.lat,lng:g.lng});saveCfg();
+  $('stNew').value='';drawStList();
+  toast(`「${n}」を登録しました（誤差 約${g.acc}m）`+(near&&near.d<=10?`。${near.d}m先に「${near.s.name}」があります`:''));
+});
 $('openSet').addEventListener('click',async()=>{
+  drawStList();
   $('sName').value=cfg.name;$('sBld').value=split(cfg.bld).join('、');$('sSpot').value=split(cfg.spot).join('、');$('sKind').value=split(cfg.kind).join('、');
   try{const p=navigator.storage&&navigator.storage.persisted?await navigator.storage.persisted():false;$('storeInfo').textContent=p?'保存は「消去されにくい」設定になっています。':'ホーム画面に追加して使うと、記録が消えにくくなります。'}catch(e){}
   show('ssheet');
 });
 $('sclose').addEventListener('click',()=>hide('ssheet'));
 $('ssave').addEventListener('click',()=>{
-  cfg={name:$('sName').value.trim(),bld:$('sBld').value,spot:$('sSpot').value,kind:$('sKind').value};
-  try{localStorage.setItem('cfg',JSON.stringify(cfg))}catch(e){}
+  cfg={...cfg,name:$('sName').value.trim(),bld:$('sBld').value,spot:$('sSpot').value,kind:$('sKind').value};
+  saveCfg();
   hide('ssheet');render();toast('設定を保存しました');
 });
 $('exp').addEventListener('click',async()=>{
@@ -428,14 +518,16 @@ $('imp').addEventListener('change',async e=>{
   const f=e.target.files[0];if(!f)return;
   try{const j=JSON.parse(await f.text());if(j.app!=='dumplog'||!Array.isArray(j.items))throw 0;
     let n=0;for(const o of j.items){if(o&&o.id&&o.img){await putRec(o);n++}}
-    if(j.cfg){cfg={...DEF,...j.cfg};try{localStorage.setItem('cfg',JSON.stringify(cfg))}catch(e){}}
+    if(j.cfg){cfg={...DEF,...j.cfg};if(!Array.isArray(cfg.stations))cfg.stations=[];saveCfg()}
     await reload();hide('ssheet');toast(`${n}件を読み込みました`);
   }catch(err){toast('このファイルは読み込めません')}
 });
 
 /* ---------- 起動 ---------- */
 (async()=>{
-  try{idb=await IDB.open();await reload();try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist()}catch(e){}}
+  try{idb=await IDB.open();
+    try{const all=await IDB.all(),rec=all.find(x=>x.id==='__cfg');if(rec&&rec.cfg&&!lsCfg){cfg={...DEF,...rec.cfg};if(!Array.isArray(cfg.stations))cfg.stations=[]}else if(!rec){await IDB.put({id:'__cfg',cfg})}}catch(e){}
+    await reload();try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist()}catch(e){}}
   catch(e){memMode=true;render();$('errline').textContent='この画面では一時保存のみです（閉じると消えます）'}
 })();
 }
