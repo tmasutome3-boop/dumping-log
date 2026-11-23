@@ -64,6 +64,8 @@ details summary{cursor:pointer;min-height:44px;display:flex;align-items:center;f
 .leaflet-tooltip.mtip{background:rgba(0,0,0,.75);color:#fff;border:0;font-size:12px;padding:2px 6px;box-shadow:none}
 .leaflet-tooltip.mtip:before{display:none}
 .mrow button.ask{background:var(--bad);color:#fff;border-color:var(--bad);font-weight:700}
+.nph{width:92px;height:92px;border-radius:8px;background:var(--line);color:var(--sub);font-size:12px;display:flex;align-items:center;justify-content:center;text-align:center}
+.bar .shoot{min-width:0}.bar button.sm{flex:none;padding:0 12px}
 .empty{text-align:center;padding:50px 10px;color:var(--sub)}
 .bar{position:fixed;left:0;right:0;bottom:0;padding:10px 16px calc(10px + env(safe-area-inset-bottom));background:var(--bg);border-top:1px solid var(--line);display:flex;gap:10px;justify-content:center;z-index:5}
 .bar .shoot{flex:1;max-width:460px;min-height:58px;font-size:19px}
@@ -104,7 +106,7 @@ pre{white-space:pre-wrap;background:var(--card);border-radius:10px;padding:12px;
 </header>
 <main id="list"></main>
 
-<div class="bar"><button class="pri shoot" id="shoot" type="button">撮影して記録</button><button id="pick" type="button">写真から</button></div>
+<div class="bar"><button class="pri shoot" id="shoot" type="button">撮影して記録</button><button class="sm" id="pick" type="button">写真から</button><button class="sm" id="nophoto" type="button">写真なし</button></div>
 <input class="fi" id="cam" type="file" accept="image/*" capture="environment" tabindex="-1" aria-hidden="true">
 <input class="fi" id="lib" type="file" accept="image/*" tabindex="-1" aria-hidden="true">
 <input class="fi" id="imp" type="file" accept="application/json,.json" tabindex="-1" aria-hidden="true">
@@ -117,6 +119,7 @@ pre{white-space:pre-wrap;background:var(--card);border-radius:10px;padding:12px;
     <label for="fdt">日時</label>
     <input id="fdt" type="datetime-local">
     <span class="lb">ゴミ置き場（近い順）</span>
+    <input id="stFlt" placeholder="ゴミ置き場を絞り込む（例：3号棟）" style="display:none;margin-bottom:8px">
     <div class="chips" id="cStn"></div>
     <p class="hint" id="stHint" style="margin:6px 0 0"></p>
     <div class="row" id="fstReg" style="margin-top:8px"><input id="fstNew" placeholder="新しいゴミ置き場の名前"><button id="fstAdd" type="button" style="flex:none">ここを登録</button></div>
@@ -131,6 +134,8 @@ pre{white-space:pre-wrap;background:var(--card);border-radius:10px;padding:12px;
     <input id="fplace" placeholder="例：北側入口の横、2階踊り場">
     <span class="lb">住所（位置情報から自動入力）</span>
     <div class="addr" id="faddr"></div>
+    <span class="lb">情報元</span>
+    <div class="chips" id="cSrc"></div>
     <span class="lb">種類</span>
     <div class="chips" id="cKind"></div>
     <span class="lb">状態</span>
@@ -312,13 +317,13 @@ async function lookup(lat,lng){
 let filt='all';
 function render(){
   const q=$('q').value.trim().toLowerCase();
-  const list=items.filter(o=>(filt==='all'||String(o.st)===filt)&&(!q||[o.station,o.bld,o.spot,o.place,o.addr,o.kind,o.comment].join(' ').toLowerCase().includes(q))).sort((a,b)=>b.t-a.t);
+  const list=items.filter(o=>(filt==='all'||String(o.st)===filt)&&(!q||[o.station,o.bld,o.spot,o.place,o.addr,o.kind,o.src,o.comment].join(' ').toLowerCase().includes(q))).sort((a,b)=>b.t-a.t);
   const n0=items.filter(o=>o.st===0).length;
   $('sumline').textContent=(cfg.name?cfg.name+'　':'')+`全${items.length}件・未報告${n0}件`;
   if(!items.length){$('list').innerHTML=`<div class="empty"><p>まだ記録がありません。<br>下の「撮影して記録」から始めましょう。</p><p class="hint">最初に「設定」で団地名と号棟を登録しておくと便利です。</p></div>`;return}
   if(!list.length){$('list').innerHTML=`<p class="empty">条件に合う記録はありません。</p>`;return}
   const g={};list.forEach(o=>{const k=dayKey(o.t);(g[k]??=[]).push(o)});
-  $('list').innerHTML=Object.entries(g).map(([d,a])=>`<div class="day"><span>${d}　${a.length}件</span><button type="button" data-rep="${esc(a.map(o=>o.id).join(','))}">報告文</button></div>${a.map(o=>`<div class="item" role="button" tabindex="0" data-id="${esc(o.id)}"><img src="${esc(o.thumb)}" alt=""><div><div class="t">${hm(o.t)}<span class="st s${o.st}">${STATES[o.st]}</span>${o.kind?`<span>${esc(o.kind)}</span>`:''}</div><div class="p">${esc(placeText(o)||'場所未入力')}</div><div class="a">${esc(o.addr||'')}</div><div class="c">${esc(o.comment||'')}</div></div><button class="idel" type="button" data-del="${esc(o.id)}">削除</button></div>`).join('')}`).join('');
+  $('list').innerHTML=Object.entries(g).map(([d,a])=>`<div class="day"><span>${d}　${a.length}件</span><button type="button" data-rep="${esc(a.map(o=>o.id).join(','))}">報告文</button></div>${a.map(o=>`<div class="item" role="button" tabindex="0" data-id="${esc(o.id)}">${o.thumb?`<img src="${esc(o.thumb)}" alt="">`:'<div class="nph">写真なし</div>'}<div><div class="t">${hm(o.t)}<span class="st s${o.st}">${STATES[o.st]}</span>${o.src?`<span>${esc(o.src)}</span>`:''}${o.kind?`<span>${esc(o.kind)}</span>`:''}</div><div class="p">${esc(placeText(o)||'場所未入力')}</div><div class="a">${esc(o.addr||'')}</div><div class="c">${esc(o.comment||'')}</div></div><button class="idel" type="button" data-del="${esc(o.id)}">削除</button></div>`).join('')}`).join('');
 }
 const placeText=o=>[o.station,o.bld,o.spot,o.place].filter(Boolean).join(' ');
 $('list').addEventListener('click',e=>{
@@ -338,8 +343,13 @@ let cur=null;
 function chips(el,list,val,multi){el.innerHTML=list.map(x=>`<button type="button" class="${(multi?String(val||'').split('・').includes(x):val===x)?'on':''}">${esc(x)}</button>`).join('')}
 const rad=x=>x*Math.PI/180;
 function dist(a,b){const R=6371000,dl=rad(b.lat-a.lat),dg=rad(b.lng-a.lng),x=Math.sin(dl/2)**2+Math.cos(rad(a.lat))*Math.cos(rad(b.lat))*Math.sin(dg/2)**2;return 2*R*Math.asin(Math.sqrt(x))}
+const SRCS=['自分で確認','仲間から報告','住民から連絡'];
 function cands(o){
   const S=cfg.stations;if(!S.length)return[];
+  if(o.noPhoto){
+    const f=(o._flt||'').trim().toLowerCase();
+    return S.map(x=>({...x,d:null})).filter(x=>!f||x.name.toLowerCase().includes(f)||(o.stId&&x.id===o.stId)).sort((a,b)=>a.name.localeCompare(b.name,'ja',{numeric:true}));
+  }
   if(o.lat==null)return S.map(s=>({...s,d:null}));
   const L=S.map(s=>({...s,d:Math.round(dist(o,s))})).sort((a,b)=>a.d-b.d),top=L.slice(0,4);
   const sel=L.find(x=>(o.stId&&x.id===o.stId)||(!o.stId&&o.station&&x.name===o.station));
@@ -353,16 +363,19 @@ function drawStn(){
   const o=cur,L=cands(o);
   $('cStn').innerHTML=L.map(x=>`<button type="button" data-sid="${esc(x.id)}" class="${((o.stId&&o.stId===x.id)||(!o.stId&&o.station===x.name))?'on':''}">${esc(x.name)}${x.d!=null?`<small>${x.d}m</small>`:''}</button>`).join('');
   let h='';
-  if(!cfg.stations.length)h='まだゴミ置き場が登録されていません。下の入力欄に名前を入れて「ここを登録」を押すか、「設定」から登録できます。';
+  if(!cfg.stations.length)h=o.noPhoto?'ゴミ置き場が登録されていません。「設定」の地図から登録するか、下の号棟・場所から選んでください。':'まだゴミ置き場が登録されていません。下の入力欄に名前を入れて「ここを登録」を押すか、「設定」から登録できます。';
+  else if(o.noPhoto)h=o.station?'選ぶと、そのゴミ置き場の位置と住所が入ります。違うときは別のボタンを押してください。':'報告のあったゴミ置き場を選んでください。位置と住所が自動で入ります。';
   else if(o._busy&&o.lat==null)h='位置情報を取得中…';
   else if(o.lat==null)h='位置情報がないため、一覧から選んでください。';
   else if(!o.station)h='40m以内に登録済みのゴミ置き場がありません。近いものを選ぶか、下で新しく登録してください。';
   else if(o.acc)h=`位置の誤差は約${o.acc}mです。違うときは別のボタンを押してください。`;
   $('stHint').textContent=h;
-  $('fstReg').style.display=o.lat!=null?'flex':'none';
+  $('fstReg').style.display=(o.lat!=null&&!o.noPhoto)?'flex':'none';
+  $('stFlt').style.display=(o.noPhoto&&cfg.stations.length>8)?'block':'none';
 }
 function drawChips(){
   drawStn();
+  chips($('cSrc'),SRCS,cur.src);
   chips($('cBld'),split(cfg.bld),cur.bld);chips($('cSpot'),split(cfg.spot),cur.spot);
   chips($('cKind'),split(cfg.kind),cur.kind,true);chips($('cSt'),STATES,STATES[cur.st]);
 }
@@ -371,7 +384,16 @@ function pickChip(el,key,multi){el.addEventListener('click',e=>{const b=e.target
   else if(multi){const a=String(cur[key]||'').split('・').filter(Boolean);const i=a.indexOf(v);i<0?a.push(v):a.splice(i,1);cur[key]=a.join('・')}
   else cur[key]=cur[key]===v?'':v;
   drawChips()})}
-$('cStn').addEventListener('click',e=>{const b=e.target.closest('button');if(!b||!cur)return;const s=cfg.stations.find(x=>x.id===b.dataset.sid);if(!s)return;if(cur.stId===s.id||(!cur.stId&&cur.station===s.name)){cur.station='';cur.stId=''}else{cur.station=s.name;cur.stId=s.id}drawChips()});
+$('cStn').addEventListener('click',e=>{const b=e.target.closest('button');if(!b||!cur)return;const s=cfg.stations.find(x=>x.id===b.dataset.sid);if(!s)return;const was=(cur.stId===s.id||(!cur.stId&&cur.station===s.name));
+  if(was){cur.station='';cur.stId=''}else{cur.station=s.name;cur.stId=s.id}
+  if(cur.noPhoto){
+    if(was){cur.lat=null;cur.lng=null;cur.addr='';cur.near='';cur._err='ゴミ置き場を選ぶと住所が入ります'}
+    else{cur.lat=s.lat;cur.lng=s.lng;cur.acc=null;cur.addr='';cur.near='';cur._err='';drawChips();drawAddr();fillAddr(cur);return}
+    drawAddr();
+  }
+  drawChips()});
+$('stFlt').addEventListener('input',e=>{if(cur){cur._flt=e.target.value;drawStn()}});
+$('cSrc').addEventListener('click',e=>{const b=e.target.closest('button');if(!b||!cur)return;cur.src=cur.src===b.textContent?'':b.textContent;drawChips()});
 pickChip($('cBld'),'bld');pickChip($('cSpot'),'spot');pickChip($('cKind'),'kind',true);pickChip($('cSt'),'st');
 function drawAddr(){
   const o=cur,e=$('faddr');
@@ -402,8 +424,9 @@ function openSheet(o,isNew){
   if(isNew)autoStation(cur);
   $('fstNew').value='';$('bldSpot').open=(!cfg.stations.length)||!!(cur.bld||cur.spot);
   $('stitle').textContent=isNew?'新しい記録':'記録の編集';
-  $('sphoto').src=o.img;
+  $('sphoto').src=o.img||'';$('sphoto').style.display=o.noPhoto?'none':'block';$('stamp').style.display=o.noPhoto?'none':'';$('stFlt').value='';
   $('fdt').value=toLocal(o.t);$('fplace').value=o.place||'';$('fcom').value=o.comment||'';
+  if(o.noPhoto&&!o.lat&&!o.addr)cur._err='ゴミ置き場を選ぶと住所が入ります';
   drawChips();drawAddr();
   $('del').hidden=isNew;$('confirm').classList.remove('on');
   show('sheet');
@@ -426,6 +449,9 @@ $('delyes').addEventListener('click',async()=>{if(!cur)return;try{await delRec(c
 /* ---------- 撮影・取り込み ---------- */
 $('shoot').addEventListener('click',()=>{startGeo();$('cam').value='';$('cam').click()});
 $('pick').addEventListener('click',()=>{geoP=null;$('lib').value='';$('lib').click()});
+$('nophoto').addEventListener('click',()=>{
+  openSheet({id:'d'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),created:Date.now(),t:Date.now(),bld:'',spot:'',place:'',kind:'',st:0,comment:'',lat:null,lng:null,acc:null,addr:'',near:'',img:'',thumb:'',noPhoto:true,src:'仲間から報告'},true);
+});
 async function onFile(file,fromCam){
   if(!file)return;
   try{
@@ -453,7 +479,7 @@ $('lib').addEventListener('change',e=>onFile(e.target.files[0],false));
 /* ---------- 報告文 ---------- */
 let repIds=[];
 function repText(o){
-  return [`■ ${full(o.t)}`,`場所：${[cfg.name,placeText(o)].filter(Boolean).join(' ')||'（未入力）'}`,o.addr?`住所：${o.addr}`:'',o.kind?`種類：${o.kind}`:'',o.comment?`内容：${o.comment}`:'',o.lat!=null?`地図：${mapUrl(o)}`:''].filter(Boolean).join('\n');
+  return [`■ ${full(o.t)}`,`場所：${[cfg.name,placeText(o)].filter(Boolean).join(' ')||'（未入力）'}`,o.addr?`住所：${o.addr}`:'',o.kind?`種類：${o.kind}`:'',o.src?`情報元：${o.src}`:'',o.comment?`内容：${o.comment}`:'',o.lat!=null?`地図：${mapUrl(o)}`:''].filter(Boolean).join('\n');
 }
 function openReport(ids){
   repIds=ids;const list=items.filter(o=>ids.includes(o.id)).sort((a,b)=>a.t-b.t);
@@ -678,7 +704,7 @@ $('imp').addEventListener('change',async e=>{
       saveCfg();hide('ssheet');render();toast(`ゴミ置き場を読み込みました（追加${add}・更新${upd}）。設定も反映しました`);return;
     }
     if(j.app!=='dumplog'||!Array.isArray(j.items))throw 0;
-    let n=0;for(const o of j.items){if(o&&o.id&&o.img){await putRec(o);n++}}
+    let n=0;for(const o of j.items){if(o&&o.id&&(o.img||o.noPhoto)){await putRec(o);n++}}
     if(j.cfg){cfg={...DEF,...j.cfg};if(!Array.isArray(cfg.stations))cfg.stations=[];saveCfg()}
     await reload();hide('ssheet');toast(`${n}件を読み込みました`);
   }catch(err){toast('このファイルは読み込めません')}
